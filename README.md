@@ -5,6 +5,15 @@ and agent platforms: see every repo's guard files, write the template
 default policy yourself, and edit each deployment's policy per repo, with
 every change committed and pushed to GitHub.
 
+## Live app (Cloudflare, no sleeping)
+
+**https://guardrail-manager.jayomer1234.workers.dev**
+
+The Cloudflare version runs at that URL, signed in with GitHub, gated by an
+access code. It never sleeps. The deployable bundle lives in `cloudflare/`
+in this repo (single Worker file + database migration + deploy notes). The
+Python version below is the original local build of the same app.
+
 ## The two layers (this split is the whole design)
 
 **Deployment policy template (owner config).** The platforms are customer
