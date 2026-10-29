@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guardrail Manager</title>
+<style>
+  :root { --bg:#0b0d10; --panel:#14181d; --panel2:#1a1f26; --line:#262c34;
+          --text:#e8e6e1; --dim:#9aa3ad; --accent:#7cc4ff; --red:#e2483a;
+          --green:#3fb97c; --amber:#e0a83c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  header { padding:14px 16px; border-bottom:1px solid var(--line);
+           display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; letter-spacing:.4px; }
+  header .sub { color:var(--dim); font-size:12px; width:100%; }
+  nav { display:flex; gap:8px; padding:10px 16px 0; }
+  nav button { flex:1; }
+  main { padding:14px 16px 40px; max-width:860px; margin:0 auto; }
+  button { background:var(--panel2); color:var(--text); border:1px solid var(--line);
+           border-radius:10px; padding:10px 14px; font-size:14px; cursor:pointer; }
+  button:active { transform:translateY(1px); }
+  button.primary { background:#12395a; border-color:#1d5a8a; }
+  button.danger { background:#4a1712; border-color:#7a2a20; }
+  button.on { outline:2px solid var(--accent); }
+  input, textarea { width:100%; background:var(--panel); color:var(--text);
+           border:1px solid var(--line); border-radius:10px; padding:10px;
+           font-size:14px; font-family:inherit; }
+  textarea { font-family:ui-monospace,Menlo,Consolas,monospace; min-height:180px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+          padding:12px 14px; margin:10px 0; }
+  .repo { display:flex; align-items:center; gap:10px; cursor:pointer; }
+  .repo .name { font-weight:600; font-size:15px; }
+  .repo .desc { color:var(--dim); font-size:12px; }
+  .chip { font-size:11px; padding:3px 8px; border-radius:999px; border:1px solid var(--line);
+          white-space:nowrap; }
+  .chip.config { color:var(--green); border-color:var(--green); }
+  .chip.floor { color:var(--amber); border-color:var(--amber); }
+  .chip.none, .chip.unscanned { color:var(--dim); }
+  .file { border-top:1px solid var(--line); padding:10px 0; }
+  .file:first-child { border-top:none; }
+  .file .path { font-family:ui-monospace,Menlo,monospace; font-size:13px; word-break:break-all; }
+  .file .label { color:var(--dim); font-size:12px; margin:3px 0 8px; }
+  .lock { color:var(--amber); font-size:12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; }
+  .row button { flex:1; min-width:120px; }
+  .entry { display:flex; gap:8px; align-items:center; padding:6px 0;
+           border-bottom:1px solid var(--line); }
+  .entry span { flex:1; font-family:ui-monospace,Menlo,monospace; font-size:13px;
+                word-break:break-all; }
+  pre.view { background:#0e1114; border:1px solid var(--line); border-radius:10px;
+             padding:10px; overflow:auto; max-height:50vh; font-size:12px;
+             white-space:pre-wrap; word-break:break-word; }
+  .msg { padding:10px 12px; border-radius:10px; margin:10px 0; font-size:13px; display:none; }
+  .msg.ok { background:#123324; display:block; }
+  .msg.err { background:#4a1712; display:block; }
+  .note { color:var(--dim); font-size:13px; line-height:1.5; }
+  h2 { font-size:16px; margin:18px 0 6px; }
+  .hidden { display:none; }
+  #login { max-width:420px; margin:60px auto; padding:0 16px; }
+</style>
+</head>
+<body>
+
+<div id="login" class="hidden">
+  <h1>Guardrail Manager</h1>
+  <p class="note">Enter the access code to open the console.</p>
+  <input id="code" type="password" placeholder="Access code" autocomplete="off">
+  <div class="row"><button class="primary" onclick="login()">Open</button></div>
+  <div id="loginmsg" class="msg"></div>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <h1>Guardrail Manager</h1>
+    <div class="sub">Deployment policy templates are yours to edit. The hard floor is code, shown read-only.</div>
+  </header>
+  <nav>
+    <button id="nav-repos" class="on" onclick="showView('repos')">Repos</button>
+    <button id="nav-default" onclick="showView('default')">Template Default</button>
+  </nav>
+  <main>
+    <div id="msg" class="msg"></div>
+
+    <section id="view-repos">
+      <div class="row">
+        <button onclick="loadRepos(true)">Rescan all repos</button>
+      </div>
+      <div id="repo-list"></div>
+    </section>
+
+    <section id="view-repo" class="hidden">
+      <div class="row"><button onclick="showView('repos')">&larr; All repos</button></div>
+      <h2 id="repo-title"></h2>
+      <div id="repo-files"></div>
+    </section>
+
+    <section id="view-file" class="hidden">
+      <div class="row"><button onclick="backToRepo()">&larr; Back to repo</button></div>
+      <h2 id="file-title" style="font-family:ui-monospace,Menlo,monospace;font-size:14px;word-break:break-all"></h2>
+      <p id="file-label" class="note"></p>
+      <div id="file-body"></div>
+    </section>
+
+    <section id="view-default" class="hidden">
+      <h2>Template default policy</h2>
+      <p class="note">This is the template default that ships with the apps. When a
+      customer deploys one of the platforms, this file is the starting policy file
+      bundled with the template. They can edit it per deployment later, and so can
+      you, per repo, from the repo list. It controls only the soft policy layer:
+      an empty entry list means no soft blocks. The hard floor is separate code
+      and is not part of this file.</p>
+      <textarea id="default-text"></textarea>
+      <div class="row">
+        <button class="primary" onclick="saveDefault()">Save template default</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+let currentRepo = null, currentFile = null, reposCache = [];
+
+function say(text, ok) {
+  const m = document.getElementById('msg');
+  m.textContent = text; m.className = 'msg ' + (ok ? 'ok' : 'err');
+  window.scrollTo(0, 0);
+}
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) { showLogin(); throw new Error('sign in required'); }
+  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+function post(path, body) {
+  return api(path, { method:'POST', headers:{'Content-Type':'application/json'},
+                     body: JSON.stringify(body || {}) });
+}
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function showLogin() {
+  document.getElementById('login').classList.remove('hidden');
+  document.getElementById('app').classList.add('hidden');
+}
+async function login() {
+  const code = document.getElementById('code').value;
+  const res = await fetch('/api/login', { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({code}) });
+  if (!res.ok) {
+    const m = document.getElementById('loginmsg');
+    m.textContent = 'Wrong access code.'; m.className = 'msg err'; return;
+  }
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  loadRepos(false); loadDefault();
+}
+function showView(v) {
+  for (const id of ['repos','repo','file','default'])
+    document.getElementById('view-' + id).classList.toggle('hidden',
+      v !== id && !(v === 'repos' && id === 'repos'));
+  document.getElementById('nav-repos').classList.toggle('on', v !== 'default');
+  document.getElementById('nav-default').classList.toggle('on', v === 'default');
+}
+
+function chip(status) {
+  if (status === 'config') return '<span class="chip config">has policy template</span>';
+  if (status === 'floor-only') return '<span class="chip floor">hard floor only</span>';
+  if (status === 'guard-code') return '<span class="chip none">guard code / detector only</span>';
+  if (status === 'none') return '<span class="chip none">none found</span>';
+  return '<span class="chip unscanned">not scanned</span>';
+}
+async function loadRepos(rescan) {
+  const list = document.getElementById('repo-list');
+  list.innerHTML = '<p class="note">Loading repos' + (rescan ? ' and scanning (first scan can take a bit)' : '') + '...</p>';
+  try {
+    const data = await api('/api/repos' + (rescan ? '?rescan=1' : ''));
+    reposCache = data.repos;
+    list.innerHTML = reposCache.map(r =>
+      '<div class="card repo" onclick="openRepo(\'' + esc(r.name) + '\')">' +
+      '<div style="flex:1"><div class="name">' + esc(r.name) + '</div>' +
+      '<div class="desc">' + esc(r.description) + '</div></div>' + chip(r.status) + '</div>'
+    ).join('') || '<p class="note">No repos found.</p>';
+  } catch (e) { say(e.message, false); }
+}
+
+async function openRepo(name) {
+  currentRepo = name;
+  document.getElementById('repo-title').textContent = name;
+  const box = document.getElementById('repo-files');
+  box.innerHTML = '<p class="note">Scanning...</p>';
+  showView('repo');
+  try {
+    const scan = await api('/api/repos/' + encodeURIComponent(name));
+    renderRepoFiles(scan);
+    const cached = reposCache.find(r => r.name === name);
+    if (cached) { cached.status = scan.status; cached.files = scan.files; }
+  } catch (e) { say(e.message, false); }
+}
+function renderRepoFiles(scan) {
+  const box = document.getElementById('repo-files');
+  const files = scan.files || [];
+  const configs = files.filter(f => f.kind === 'config');
+  const floor = files.filter(f => f.kind !== 'config');
+  let html = '';
+  html += '<h2>Deployment policy template</h2>';
+  if (configs.length) {
+    html += configs.map(f =>
+      '<div class="file"><div class="path">' + esc(f.path) + '</div>' +
+      '<div class="label">' + esc(f.label) + '</div>' +
+      '<div class="row"><button class="primary" onclick="openFile(\'' + esc(f.path) + '\')">Edit policy</button></div></div>'
+    ).join('');
+  } else {
+    html += '<p class="note">No policy template file in this repo yet. The template default can be added as one.</p>' +
+      '<div class="row"><button class="primary" onclick="createConfig()">Add template default as policy file</button></div>';
+  }
+  html += '<h2>Hard floor and other guard code</h2>';
+  if (floor.length) {
+    html += '<p class="note">Hard floor, not editable here. These are hardcoded checks in code (stolen cards, phishing/fraud, wallet theft, unauthorized hacking, weapons of mass harm, CSAM, doxxing, and the money/approval/scope gates). View only.</p>';
+    html += floor.map(f =>
+      '<div class="file"><div class="path">' + esc(f.path) + '</div>' +
+      '<div class="label">' + esc(f.label) + ' &middot; <span class="lock">view only</span></div>' +
+      '<div class="row"><button onclick="openFile(\'' + esc(f.path) + '\')">View</button></div></div>'
+    ).join('');
+  } else {
+    html += '<p class="note">No hard-floor or guard code files found in this repo.</p>';
+  }
+  if (scan.error) html += '<p class="note">Scan note: ' + esc(scan.error) + '</p>';
+  box.innerHTML = html;
+}
+function backToRepo() { if (currentRepo) openRepo(currentRepo); else showView('repos'); }
+
+async function openFile(path) {
+  try {
+    const f = await api('/api/repos/' + encodeURIComponent(currentRepo) +
+                        '/file?path=' + encodeURIComponent(path));
+    currentFile = f;
+    document.getElementById('file-title').textContent = f.path;
+    document.getElementById('file-label').textContent = f.label +
+      (f.editable ? '' : ' - hard floor, not editable here.');
+    const body = document.getElementById('file-body');
+    if (!f.editable) {
+      body.innerHTML = '<pre class="view">' + esc(f.content) + '</pre>';
+    } else {
+      body.innerHTML = editorHtml(f);
+      wireEditor(f);
+    }
+    showView('file');
+  } catch (e) { say(e.message, false); }
+}
+function editorHtml(f) {
+  const entries = (f.entries || []).map(e =>
+    '<div class="entry"><span>' + esc(e) + '</span>' +
+    '<button class="danger" data-remove="' + esc(e) + '">Remove</button></div>').join('');
+  if (f.embedded) {
+    return '<h2>Policy entries (refusal patterns for this deployment)</h2>' +
+      '<div id="entries">' + (entries || '<p class="note">No entries. Zero entries means no soft blocks.</p>') + '</div>' +
+      '<div class="row"><input id="new-entry" placeholder="New policy entry">' +
+      '<button id="btn-add">Add entry &amp; push</button></div>' +
+      '<div class="row"><button id="btn-apply">Apply template default</button>' +
+      '<button class="danger" id="btn-clear">Clear all entries &amp; push</button></div>' +
+      '<p class="note">This template lives in a code module the app imports, so the entry lists are editable here but the module itself is not raw-editable or deletable from this app (deleting it would break the app build). Clearing the lists to zero means no soft blocks. The hard floor is in separate files and is not affected.</p>' +
+      '<h2>File (view only)</h2><pre class="view">' + esc(f.content) + '</pre>';
+  }
+  return '<h2>Entries</h2>' +
+    '<div id="entries">' + (entries || '<p class="note">No entries. Zero entries means no soft blocks.</p>') + '</div>' +
+    '<div class="row"><input id="new-entry" placeholder="New policy entry">' +
+    '<button onclick="addEntry()">Add entry</button></div>' +
+    '<h2>Raw file</h2>' +
+    '<textarea id="raw">' + esc(f.content) + '</textarea>' +
+    '<div class="row">' +
+      '<button class="primary" id="btn-save">Save &amp; push</button>' +
+      '<button id="btn-apply">Apply template default</button>' +
+    '</div><div class="row">' +
+      '<button class="danger" id="btn-clear">Clear all entries</button>' +
+      '<button class="danger" id="btn-delete">Delete policy file</button>' +
+    '</div>' +
+    '<p class="note">Deleting or emptying this file is safe by design: no policy file (or an empty one) means no soft blocks. The hard floor lives in separate code and is not affected.</p>';
+}
+function entriesNow() {
+  const raw = document.getElementById('raw').value.trim();
+  try {
+    const data = JSON.parse(raw);
+    if (Array.isArray(data)) return data.map(String);
+    if (data && typeof data === 'object') {
+      for (const k of ['entries','blocklist','block_list','rules','patterns','blocked','deny','denylist','deny_list','phrases'])
+        if (Array.isArray(data[k])) return data[k].map(String);
+      return [];
+    }
+  } catch (e) {}
+  return raw.split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#') && !s.startsWith('//'));
+}
+function setEntries(entries) {
+  const rawEl = document.getElementById('raw');
+  let data = null;
+  try { data = JSON.parse(rawEl.value.trim()); } catch (e) {}
+  if (Array.isArray(data)) { rawEl.value = JSON.stringify(entries, null, 2) + '\n'; }
+  else if (data && typeof data === 'object') {
+    let done = false;
+    for (const k of ['entries','blocklist','block_list','rules','patterns','blocked','deny','denylist','deny_list','phrases'])
+      if (Array.isArray(data[k])) { data[k] = entries; done = true; break; }
+    if (!done) data.entries = entries;
+    rawEl.value = JSON.stringify(data, null, 2) + '\n';
+  } else { rawEl.value = entries.join('\n') + (entries.length ? '\n' : ''); }
+  currentFile.content = rawEl.value; currentFile.entries = entries;
+  document.getElementById('file-body').innerHTML = editorHtml(currentFile);
+  wireEditor(currentFile);
+}
+function entryOp(action, entry) {
+  return post('/api/repos/' + encodeURIComponent(currentRepo) + '/' + action,
+    { path: currentFile.path, entry: entry || '' });
+}
+function wireEditor(f) {
+  if (f.embedded) {
+    document.querySelectorAll('[data-remove]').forEach(btn =>
+      btn.onclick = async () => {
+        try {
+          const r = await entryOp('remove-entry', btn.dataset.remove);
+          say('Entry removed and pushed. Commit ' + String(r.commit).slice(0, 8), true);
+          openFile(currentFile.path);
+        } catch (e) { say(e.message, false); }
+      });
+    document.getElementById('btn-add').onclick = async () => {
+      const val = document.getElementById('new-entry').value.trim();
+      if (!val) return;
+      try {
+        const r = await entryOp('add-entry', val);
+        say('Entry added and pushed. Commit ' + String(r.commit).slice(0, 8), true);
+        openFile(currentFile.path);
+      } catch (e) { say(e.message, false); }
+    };
+    document.getElementById('btn-apply').onclick = async () => {
+      if (!confirm('Replace this repo policy entries with the template default entries?')) return;
+      try {
+        const r = await post('/api/repos/' + encodeURIComponent(currentRepo) + '/apply-default', {});
+        say('Template default applied and pushed. Commit ' + String(r.commit).slice(0, 8), true);
+        openFile(currentFile.path);
+      } catch (e) { say(e.message, false); }
+    };
+    document.getElementById('btn-clear').onclick = async () => {
+      if (!confirm('Clear all entries and push? Zero entries means no soft blocks.')) return;
+      try {
+        const r = await entryOp('clear-entries');
+        say('All entries cleared and pushed. Commit ' + String(r.commit).slice(0, 8), true);
+        openFile(currentFile.path);
+      } catch (e) { say(e.message, false); }
+    };
+    return;
+  }
+  document.querySelectorAll('[data-remove]').forEach(btn =>
+    btn.onclick = () => setEntries(entriesNow().filter(e => e !== btn.dataset.remove)));
+  document.getElementById('btn-save').onclick = async () => {
+    try {
+      const r = await post('/api/repos/' + encodeURIComponent(currentRepo) + '/save',
+        { path: currentFile.path, content: document.getElementById('raw').value });
+      say('Saved and pushed. Commit ' + String(r.commit).slice(0, 8), true);
+    } catch (e) { say(e.message, false); }
+  };
+  document.getElementById('btn-apply').onclick = async () => {
+    if (!confirm('Replace this repo policy with the template default?')) return;
+    try {
+      const r = await post('/api/repos/' + encodeURIComponent(currentRepo) + '/apply-default', {});
+      say('Template default applied and pushed. Commit ' + String(r.commit).slice(0, 8), true);
+      openFile(currentFile.path);
+    } catch (e) { say(e.message, false); }
+  };
+  document.getElementById('btn-clear').onclick = () => {
+    if (!confirm('Clear all entries? The file stays, with zero entries (no soft blocks). Then Save & push.')) return;
+    setEntries([]);
+  };
+  document.getElementById('btn-delete').onclick = async () => {
+    if (!confirm('Delete this policy file from the repo and push? No policy file means no soft blocks. This only deletes the policy template file, never hard-floor code.')) return;
+    try {
+      const r = await post('/api/repos/' + encodeURIComponent(currentRepo) + '/delete',
+        { path: currentFile.path });
+      say('Policy file deleted and pushed. Commit ' + String(r.commit).slice(0, 8), true);
+      backToRepo();
+    } catch (e) { say(e.message, false); }
+  };
+}
+function addEntry() {
+  const input = document.getElementById('new-entry');
+  const val = input.value.trim();
+  if (!val) return;
+  const entries = entriesNow();
+  if (!entries.includes(val)) entries.push(val);
+  setEntries(entries);
+}
+async function createConfig() {
+  try {
+    const r = await post('/api/repos/' + encodeURIComponent(currentRepo) + '/create-config', {});
+    say('Policy file created from the template default and pushed. Commit ' + String(r.commit).slice(0, 8), true);
+    openRepo(currentRepo);
+  } catch (e) { say(e.message, false); }
+}
+async function loadDefault() {
+  try {
+    const d = await api('/api/default');
+    document.getElementById('default-text').value = d.text;
+  } catch (e) {}
+}
+async function saveDefault() {
+  try {
+    await post('/api/default', { text: document.getElementById('default-text').value });
+    say('Template default saved. It is the starting policy file bundled with the templates.', true);
+  } catch (e) { say(e.message, false); }
+}
+
+// Try an authed call; if the session is gone, show login.
+api('/api/repos').then(d => {
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  reposCache = d.repos; loadRepos(false); loadDefault();
+}).catch(() => showLogin());
+</script>
+</body>
+</html>
